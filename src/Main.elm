@@ -18,6 +18,7 @@ import Icon
 import Json.Decode as Decode
 import Json.Encode exposing (Value)
 import Ports
+import Process
 import Routes exposing (Route)
 import SharedState exposing (SharedState)
 import SmoothScroll
@@ -26,6 +27,7 @@ import Url exposing (Url)
 import Util
 import View.About as About
 import View.Contact as Contact
+import View.HexFlare as HexFlare
 import View.Home as Home
 import View.Projects as Projects
 
@@ -56,6 +58,7 @@ type alias Model =
 
 type alias M =
     { sharedState : SharedState
+    , showHex : Bool
     , route : Route
     , about : About.Model
     , home : Home.Model
@@ -93,12 +96,15 @@ init flagsJson url key =
         Ok flags ->
             ( Ok
                 { sharedState = SharedState.init key flags
+                , showHex = True
                 , route = route
                 , about = About.init
                 , home = Home.init flags
                 , projects = Projects.init flags
                 , contact = Contact.init
                 }
+              -- , Process.sleep 5000
+              --     |> Task.perform (\_ -> RemoveHex)
             , Cmd.none
             )
 
@@ -172,6 +178,7 @@ viewOk model =
         [ Element.width Element.fill
         , Element.height Element.fill
         , Element.spacing 64
+        , Element.inFront <| hexFlare model
         ]
         [ Home.view model.sharedState model.home
             |> Element.map HomeMsg
@@ -189,6 +196,15 @@ viewOk model =
                 , Font.sansSerif
                 ]
             ]
+
+
+hexFlare : M -> Element Msg
+hexFlare model =
+    if model.showHex then
+        HexFlare.view model.sharedState
+
+    else
+        Element.none
 
 
 footer : Bool -> Element Msg
@@ -236,6 +252,7 @@ type Msg
     | UrlChanged Url
     | WindowResize WindowSize
     | ScrollTo String
+    | RemoveHex
     | HomeMsg Home.Msg
     | AboutMsg About.Msg
     | ProjectsMsg Projects.Msg
@@ -273,6 +290,9 @@ update msg m =
             , SmoothScroll.scrollToWithOptions scrollConfig id
                 |> Task.attempt FailedRouteJump
             )
+
+        ( Ok model, RemoveHex ) ->
+            ( Ok { model | showHex = False }, Cmd.none )
 
         ( Ok model, HomeMsg homeMsg ) ->
             let
@@ -345,19 +365,23 @@ update msg m =
 subscriptions : Model -> Sub Msg
 subscriptions m =
     case m of
+        Ok model ->
+            if model.showHex then
+                Ports.scroll (always <| ScrollTo <| Routes.toId model.route)
+
+            else
+                Sub.batch
+                    [ Home.subscriptions model.sharedState model.home
+                        |> Sub.map HomeMsg
+                    , About.subscriptions model.about
+                        |> Sub.map AboutMsg
+                    , Projects.subscriptions model.projects
+                        |> Sub.map ProjectsMsg
+                    , Contact.subscriptions model.contact
+                        |> Sub.map ContactMsg
+                    , Browser.Events.onResize (\x y -> WindowResize (WindowSize x y))
+                    , Ports.scroll (always <| ScrollTo <| Routes.toId model.route)
+                    ]
+
         Err _ ->
             Sub.none
-
-        Ok model ->
-            Sub.batch
-                [ Home.subscriptions model.sharedState model.home
-                    |> Sub.map HomeMsg
-                , About.subscriptions model.about
-                    |> Sub.map AboutMsg
-                , Projects.subscriptions model.projects
-                    |> Sub.map ProjectsMsg
-                , Contact.subscriptions model.contact
-                    |> Sub.map ContactMsg
-                , Browser.Events.onResize (\x y -> WindowResize (WindowSize x y))
-                , Ports.scroll (always <| ScrollTo <| Routes.toId model.route)
-                ]
